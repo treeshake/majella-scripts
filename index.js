@@ -1,7 +1,20 @@
 var fs = require('fs');
 var path = require('path');
-var Keyword = 'orange';
-var Replacement = 'apple';
+var FolderPaths = [];
+var KeywordReplacementData = [
+  {
+    Keyword: 'orange',
+    Replacement: 'apple'
+  },
+  {
+    Keyword: 'mango',
+    Replacement: 'grapes'
+  },
+  {
+    Keyword: 'cherry',
+    Replacement: 'banana'
+  }
+];
 var FinalResult = {
   ContentReplceCount: 0,
   FileNameReplaceCount: 0,
@@ -11,25 +24,45 @@ var FinalResult = {
 
 var readAndWriteFile = async function (element) {
   return new Promise((resolve, reject) => {
+    if (!fs.existsSync(element))
+      return resolve("False");
     fs.readFile(element, 'utf8', async function (err, data) {
       if (err) {
         return console.log(err);
       }
-      if (data.indexOf(Keyword) > -1) {
-        var mapObj = {};
-        mapObj[Keyword] = Keyword;
-        var re = new RegExp(Object.keys(mapObj).join("|"), "gi");
-        var count = data.split(' ')?.filter((x) => x.includes(Keyword))?.length || 0;
-        FinalResult.ContentReplceCount += count;
-        var result = data.replace(re, Replacement);
-        fs.writeFile(element, result, 'utf8', function (err) {
-          if (err) return console.log(err);
-          return resolve("True");
-        });
-      } else {
-        return resolve("False");
+      for (let index = 0; index < KeywordReplacementData.length; index++) {
+        const keys = KeywordReplacementData[index];
+        if (data.indexOf(keys.Keyword) > -1) {
+          var mapObj = {};
+          mapObj[keys.Keyword] = keys.Keyword;
+          var re = new RegExp(Object.keys(mapObj).join("|"), "gi");
+          var count = data.split(' ')?.filter((x) => x.includes(keys.Keyword))?.length || 0;
+          //FinalResult.ContentReplceCount += count;
+          var result = data.replace(re, keys.Replacement);
+          fs.writeFile(element, result, 'utf8', function (err) {
+            if (err) return console.log(err);
+            FinalResult.ContentReplceCount += count;
+            if (KeywordReplacementData.length - 1 == index)
+              return resolve("True");
+          });
+        } else {
+          if (KeywordReplacementData.length - 1 == index)
+            return resolve("False");
+        }
       }
     });
+  });
+}
+
+var TakeMatchedKeywordRecord = async function (Keyword) {
+  return new Promise((resolve, reject) => {
+    var res = KeywordReplacementData.filter((x) => x.Keyword == Keyword);
+    if (res.length > 0) {
+      return resolve(res);
+    }
+    else {
+      return resolve([]);
+    }
   });
 }
 
@@ -44,7 +77,8 @@ var TakeFileAndFolderList = async function (dir, done) {
       file = path.resolve(dir, file);
       fs.stat(file, function (err, stat) {
         if (stat && stat.isDirectory()) {
-          results.push(file);
+          //results.push(file);
+          FolderPaths.push(file);
           TakeFileAndFolderList(file, function (err, res) {
             results = results.concat(res);
             next();
@@ -58,39 +92,22 @@ var TakeFileAndFolderList = async function (dir, done) {
   });
 };
 
-// var CheckFileRename = async function (element) {
-//   return new Promise((resolve, reject) => {
-//     var filename = path.parse(element).name;
-//     var fileExt = path.parse(element).ext;
-//     if (Keyword == filename) {
-//       var newPath = element.substr(0, element.lastIndexOf('\\')) + '\\' + Replacement + fileExt;
-//       // console.log('element File =>',element);
-//       // console.log('newPath File =>',newPath);
-//       fs.rename(element, newPath, function (err) {
-//         if (err) {
-//           return console.log(err);
-//         } else {
-//           FinalResult.FileNameReplaceCount++;
-//           console.log("Successfully renamed the File.")
-//           return resolve();
-//         }
-//       })
-//     } else
-//       return resolve();
-//   });
-// }
-
 var FileDirectoryRename = async function (element, newPath, type) {
   return new Promise((resolve, reject) => {
+    if (!fs.existsSync(element))
+      return resolve("False");
     fs.rename(element, newPath, function (err) {
       if (err) {
-        return console.log(err);
+        //return 
+
+        console.log("renamed failed ", err, element, newPath);
+        return resolve();
       } else {
-        if(type == "file")
+        if (type == "file")
           FinalResult.FileNameReplaceCount++;
         else
           FinalResult.FolderNameReplaceCount++;
-        console.log("Successfully renamed the File/directory.")
+        //console.log("Successfully renamed the File/directory.")
         return resolve();
       }
     })
@@ -99,19 +116,23 @@ var FileDirectoryRename = async function (element, newPath, type) {
 
 TakeFileAndFolderList(__dirname + '\\data', async function (err, results) {
   if (err) throw err;
-  console.log("Result is : ", results.reverse());
+  results = results.concat(FolderPaths.reverse());
+  //console.log("Result is : ", results);
   for (let index = 0; index < results.length; index++) {
     const element = results[index];
-    if (!fs.statSync(element).isDirectory()) {
+    if (fs.existsSync(element) && !fs.lstatSync(element).isDirectory()) {
       var res = await readAndWriteFile(element);
       if (res == "True") {
-        console.log("Replaced containt");
+        //console.log("Replaced containt");
         //FinalResult.ContentReplceCount++;
       }
+
       var filename = path.parse(element).name;
       var fileExt = path.parse(element).ext;
-      if (Keyword == filename) {
-        var newPath = element.substr(0, element.lastIndexOf('\\')) + '\\' + Replacement + fileExt;
+      var res = await TakeMatchedKeywordRecord(filename);
+      if (res.length > 0) {
+        res = res[0];
+        var newPath = element.substr(0, element.lastIndexOf('\\')) + '\\' + res.Replacement + fileExt;
         // console.log('element File =>',element);
         // console.log('newPath File =>',newPath);
         await FileDirectoryRename(element, newPath, 'file');
@@ -119,8 +140,10 @@ TakeFileAndFolderList(__dirname + '\\data', async function (err, results) {
     } else {
       var directory = element.substr(element.lastIndexOf('\\') + 1, element.length);
       // console.log('directory =>',directory);
-      if (Keyword == directory) {
-        var newPath = element.substr(0, element.lastIndexOf('\\')) + '\\' + Replacement;
+      var res = await TakeMatchedKeywordRecord(directory);
+      if (res.length > 0) {
+        res = res[0];
+        var newPath = element.substr(0, element.lastIndexOf('\\')) + '\\' + res.Replacement;
         // console.log('element directory =>',element);
         // console.log('newPath directory =>',newPath);
         await FileDirectoryRename(element, newPath, 'folder');
